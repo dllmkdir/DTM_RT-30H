@@ -9,17 +9,25 @@ const int ledPin = 13;      // LED connected to digital pin 13
 const int factorPot = A2; //Gain Potenciometer
 const int timPot=A3;//retrigger time potenciometer
 const int selectEqPin = 9; //select velocity curve with digital 9
+const int recPin = 8;
+const int channelPin = 7;
 //show  velocity status curve  in LED1, 2 and 3
 const int led1 = 10; 
 const int led2 = 11;
 const int led3 = 12;
+
+const int led1c = 5; //Channel LED indicators
+const int led2c = 4; //Channel LED indicators
+const int led3c = 3; //Channel LED indicators
+
+const int ledlock = 6;
 int pinAssignments[2] ={A0,A1};
-byte PadNote[1] = {57};         //array for trigger position. Only using A0.
+byte PadNote[1] = {40};         //array for trigger position. Only using A0.
 int PadCutOff[1] = {400};          // pitch information associated with the first trigger (Mid C = 60). More to be added
 int MaxPlayTime[1] = {20};               //Unused variable. Replaced with retrigger time
 #define  midichannel 1;                              // MIDI channel from 0 to 15 (+1 in "real world"). Set as the first channel
 boolean VelocityFlag  = true;                           // Velocity ON (true) or OFF (false) for retrigger and attack information
-
+int peak =0;
 boolean activePad[1] = {0};                   // Array of flags of pad currently playing
 int PinPlayTime[1] = {0};                     // Counter since pad started to play
 byte status1; //status byte for MIDI triggering
@@ -36,6 +44,20 @@ bool selectflag=true; //Push-Button for velocity curve selection flag
 int ledState = LOW;  //LED for process verification
 int threshold=0; //threshold for midi detection
 
+bool recordflag; //flag for recording push button
+bool lockflag=false;//flag for recording configuration
+bool selectRecflag=true;//stay on after push
+
+bool forwardChannelflag;//flag for channel push button
+bool selectChannelflag=true;//stay after push 
+int channelflag=0;//flag for channel option selection
+
+
+//**In the future there will be arrays for channel selection
+int lockThreshold=0;//lock threshold settings after recording
+int lockGain=0;//lock gain after recording
+int lockRetrigg=0;//lock retrigger time after recording
+int lockoption=0;// lock velocity curve  after recording
 void setup() 
 {
    pinMode(ledPin, OUTPUT); // declare the ledPin as OUTPUT
@@ -43,6 +65,10 @@ void setup()
    pinMode(led1, OUTPUT);
    pinMode(led2, OUTPUT);
    pinMode(led3, OUTPUT);
+   pinMode(ledlock, OUTPUT);
+   pinMode(led1c, OUTPUT);
+   pinMode(led2c, OUTPUT);
+   pinMode(led3c, OUTPUT);
 
    pinMode(selectEqPin, INPUT);//selectEquationPin as INPUT
   Serial.begin(57600);                                  //Set hairless to the same baudrate for optimal performance
@@ -57,15 +83,28 @@ void loop()
     //   for (pinRead=0; pinRead < 16, pin++){
     //***OBTAIN POTENCIOMETER AND PIEZOSENSOR MEASUREMENTS***
     sensorReading = analogRead(pinAssignments[pin]); //Read piezosensor
-    threshold = analogRead(thresholdPot); //Read threshold 
-    kFactor= 0.0029*analogRead(factorPot)+1;//read Gain factor(Range: 1-5 )
+
+    if(lockflag){
+        threshold = lockThreshold; 
+        kFactor= lockGain;
+        period=lockRetrigg;
+    }else{
+        threshold = analogRead(thresholdPot); //Read threshold 
+        kFactor= 0.0088*analogRead(factorPot)+1;//read Gain factor(Range: 1-5 )
+        period=390.2248*analogRead(timPot)+800;//read retrigger time(Range: 800us-10ms)
+   }
+    
+
+    
     forwardflag = digitalRead(selectEqPin);//read velocity curve option
-    period=8.9932*analogRead(timPot)+800;//read retrigger time(Range: 800us-10ms)
+    
+    recordflag=digitalRead(recPin);//read configuration lock button
+    forwardChannelflag=digitalRead(channelPin);
     
     //Serial.println(hitavg);   
     // Read flags and change option status
 
-    if(forwardflag && selectflag){
+    if(forwardflag && selectflag && lockflag){
     if(optionflag==5){
        optionflag=0;
      }else{
@@ -76,49 +115,109 @@ void loop()
       selectflag=true;
     
     }
+
+   
     //update velocity curve option with LED1, 2 and 3. 6 possible cases.
     switch(optionflag){
       case 0:
+        digitalWrite(led1, LOW);
+        digitalWrite(led2, LOW);
+        digitalWrite(led3, LOW);
+        break; 
+      case 1:
       
         digitalWrite(led1, HIGH);
         digitalWrite(led2, LOW);
         digitalWrite(led3, LOW);
         break;
-      case 1: 
+      case 2: 
        
         digitalWrite(led1, LOW);
         digitalWrite(led2, HIGH);
         digitalWrite(led3, LOW);
         break;
-      case 2:
+      case 3:
        
         digitalWrite(led1, HIGH);
         digitalWrite(led2, HIGH);
         digitalWrite(led3, LOW);
         break;
-      case 3: 
+      case 4: 
 
         digitalWrite(led1, LOW);
         digitalWrite(led2, LOW);
         digitalWrite(led3, HIGH);
         break;
-      case 4: 
+      case 5: 
         
         digitalWrite(led1, HIGH);
         digitalWrite(led2, LOW);
         digitalWrite(led3, HIGH);
         break;
-      case 5: 
-     
-        digitalWrite(led1, LOW);
-        digitalWrite(led2, HIGH);
-        digitalWrite(led3, HIGH);
-        break; 
       default:
         
         digitalWrite(led1, LOW);
         digitalWrite(led2, LOW);
         digitalWrite(led3, LOW);
+        break;  
+    }
+    
+    //Read flags and change lockflag status to set recording.
+    if(recordflag && selectRecflag){
+      if(lockflag){
+        lockflag=false;
+        digitalWrite(ledlock,LOW);
+        
+      }else{
+        //capture parameters and lock settings
+        lockflag=true;
+        lockThreshold=threshold; 
+        lockGain=kFactor;
+        lockRetrigg=period;
+        lockoption=optionflag;
+        digitalWrite(ledlock,HIGH);
+        }
+      selectRecflag=false;
+    }else if(!recordflag && !selectRecflag){
+      selectRecflag=true;
+    
+    }
+    //PUsh button for editing channel configuration. Channel is set from 0 to 2
+    if(forwardChannelflag && selectChannelflag && !lockflag){
+      if(channelflag==2){
+        channelflag=0;
+      }else{
+        channelflag++;
+        }
+      selectChannelflag=false;
+    }else if(!forwardChannelflag && !selectChannelflag){
+      selectChannelflag=true;
+    
+    }
+    //Channel visualization
+    switch(channelflag){
+      case 0:
+        digitalWrite(led1c, HIGH);
+        digitalWrite(led2c, LOW);
+        digitalWrite(led3c, LOW);
+        break; 
+      case 1:
+      
+        digitalWrite(led1c, LOW);
+        digitalWrite(led2c, HIGH);
+        digitalWrite(led3c, LOW);
+        break;
+      case 2: 
+       
+        digitalWrite(led1c, LOW);
+        digitalWrite(led2c, LOW);
+        digitalWrite(led3c, HIGH);
+        break;
+      default:
+        
+        digitalWrite(led1c, LOW);
+        digitalWrite(led2c, LOW);
+        digitalWrite(led3c, LOW);
         break;  
     }
     
@@ -132,6 +231,14 @@ void loop()
         ledState = LOW;//Set built-in LED to LOW
       }
     }else if(sensorReading >= threshold){//If attack  exceeds threshold
+      //determine the peak of the signal to estimate the attack
+      while(!(peak>sensorReading)){
+        peak= sensorReading;
+        sensorReading = analogRead(pinAssignments[pin]);  
+        delay(2); 
+      }
+      sensorReading=peak;
+      
       if((activePad[pin] == false)){//If pad is not active
         if(VelocityFlag == true){//If velocity flage is true then make velocity calculations
           x=sensorReading*kFactor;
@@ -139,7 +246,7 @@ void loop()
             x=1023;//set  velocity upper limit
           }
         }else{
-          x = 127;
+          x = 1023;
         }
         //set equation determination for velocity curves. All equations are adjusted
         switch(optionflag){
@@ -165,7 +272,11 @@ void loop()
         y=(int) 0.1241*x;
         break;  
     }
-
+        if(y>127){
+          y=127;//Out of Bounds emergency case
+          }else if(y<0){
+          y=0;
+          }
 
 
         
@@ -175,7 +286,7 @@ void loop()
         activePad[pin] = true;//sets decay period to true
       }
 
-
+      peak=0;
       ledState = HIGH;//LED shows MIDI transmission
     }else{
       
